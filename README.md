@@ -49,4 +49,4 @@ npm start
 
 ## Лицензия
 
-MIT 
+MIT # diz-panel
