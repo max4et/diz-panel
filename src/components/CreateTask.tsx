@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { createTask, uploadFile } from '../services/taskService';
+import { createTask, uploadFile, updateTask, addTaskComment } from '../services/taskService';
 import ServiceCategory from './ServiceCategory';
 import OrderSummary from './OrderSummary';
 import OrderForm from './OrderForm';
@@ -8,6 +8,7 @@ import type { Service } from '../lib/types';
 import type { OrderFormValues } from './OrderForm';
 import { getDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { Task } from '../services/taskService';
 
 // Импортируем все услуги
 import { additionalServices } from '../lib/services/additional';
@@ -20,14 +21,58 @@ import { videoServices } from '../lib/services/video';
 import { webServices } from '../lib/services/web';
 
 interface CreateTaskProps {
-  onSuccess?: () => void;
+  onSuccess?: (task?: Task) => void;
+  editTask?: Task;
 }
 
-const CreateTask: React.FC<CreateTaskProps> = ({ onSuccess }) => {
+const CreateTask: React.FC<CreateTaskProps> = ({ onSuccess, editTask }) => {
   const { currentUser } = useAuth();
   const [step, setStep] = useState(1);
   const [selectedServices, setSelectedServices] = useState<Service[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [initialFormValues, setInitialFormValues] = useState<OrderFormValues | undefined>(undefined);
+
+  useEffect(() => {
+    if (editTask) {
+      // Извлекаем выбранные услуги из описания
+      const servicesDescription = editTask.description.split('Выбранные услуги:\n')[1];
+      if (servicesDescription) {
+        const serviceNames = servicesDescription
+          .split('\n')
+          .map(line => line.replace('- ', '').split(' (')[0]);
+        
+        const allServices = [
+          ...webServices,
+          ...brandingServices,
+          ...illustrationServices,
+          ...marketingServices,
+          ...printServices,
+          ...videoServices,
+          ...gameServices,
+          ...additionalServices
+        ];
+        
+        const selectedServicesList = allServices.filter(service => 
+          serviceNames.includes(service.name)
+        );
+        setSelectedServices(selectedServicesList);
+      }
+
+      // Извлекаем ссылку на пример из вложений
+      const inspirationAttachment = editTask.attachments?.find(
+        att => att.name === 'Ссылка на пример'
+      );
+
+      // Подготавливаем начальные значения формы
+      setInitialFormValues({
+        taskName: editTask.title,
+        taskDescription: editTask.description.split('Выбранные услуги:\n')[0].trim(),
+        deadline: new Date(editTask.deadline).toISOString().split('T')[0],
+        inspirationLink: inspirationAttachment?.url || '',
+        attachments: null
+      });
+    }
+  }, [editTask]);
 
   const handleServiceToggle = (service: Service) => {
     setSelectedServices(prev => {
@@ -58,36 +103,40 @@ const CreateTask: React.FC<CreateTaskProps> = ({ onSuccess }) => {
     try {
       setError(null);
       const deadline = new Date(data.deadline);
-      const attachments = [];
+      const attachments = [...(editTask?.attachments || [])];
       
-      // Создаем временный ID для задачи
-      const tempTaskId = Math.random().toString(36).substring(7);
-      
-      // Добавляем ссылку на пример, если она указана
-      if (data.inspirationLink) {
+      // Обновляем или добавляем ссылку на пример
+      const existingInspirationIndex = attachments.findIndex(
+        att => att.name === 'Ссылка на пример'
+      );
+      if (existingInspirationIndex !== -1) {
+        if (data.inspirationLink) {
+          attachments[existingInspirationIndex] = {
+            name: 'Ссылка на пример',
+            url: data.inspirationLink,
+            type: 'link'
+          };
+        } else {
+          attachments.splice(existingInspirationIndex, 1);
+        }
+      } else if (data.inspirationLink) {
         attachments.push({
           name: 'Ссылка на пример',
           url: data.inspirationLink,
-          type: 'link' as const
+          type: 'link'
         });
       }
       
-      // Загружаем файлы в Storage
+      // Загружаем новые файлы
       if (data.attachments && data.attachments.length > 0) {
         for (let i = 0; i < data.attachments.length; i++) {
           const file = data.attachments[i];
-          try {
-            const fileUrl = await uploadFile(file, tempTaskId);
-            attachments.push({
-              name: file.name,
-              url: fileUrl,
-              type: 'file' as const
-            });
-          } catch (error) {
-            console.error('Ошибка при загрузке файла:', error);
-            setError('Ошибка при загрузке файлов. Пожалуйста, попробуйте снова.');
-            return;
-          }
+          const fileUrl = await uploadFile(file, editTask?.id || Math.random().toString(36).substring(7));
+          attachments.push({
+            name: file.name,
+            url: fileUrl,
+            type: 'file'
+          });
         }
       }
 
@@ -95,29 +144,76 @@ const CreateTask: React.FC<CreateTaskProps> = ({ onSuccess }) => {
       const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
       const userData = userDoc.data();
       
-      // Создаем задачу с загруженными файлами и информацией об авторе
       const taskData = {
         title: data.taskName,
         description: `${data.taskDescription}\n\nВыбранные услуги:\n${selectedServices.map(s => `- ${s.name} (${s.estimatedHours} часов)`).join('\n')}`,
-        status: 'pending' as const,
-        userId: currentUser.uid,
+        status: editTask?.status || 'pending' as const,
+        userId: editTask?.userId || currentUser.uid,
         deadline,
         attachments,
-        author: {
+        author: editTask?.author || {
           email: currentUser.email || '',
           company: userData?.companyName || ''
         }
       };
 
-      await createTask(taskData);
+      let updatedTask;
+      if (editTask) {
+        // Формируем текст комментария об изменениях
+        const changes: string[] = [];
+        if (editTask.title !== taskData.title) {
+          changes.push(`- Изменено название задачи с "${editTask.title}" на "${taskData.title}"`);
+        }
+        if (editTask.description.split('\n\nВыбранные услуги:\n')[0].trim() !== data.taskDescription) {
+          changes.push('- Изменено описание задачи');
+        }
+        if (editTask.deadline.toISOString().split('T')[0] !== deadline.toISOString().split('T')[0]) {
+          changes.push(`- Изменён дедлайн с ${new Date(editTask.deadline).toLocaleDateString('ru-RU')} на ${deadline.toLocaleDateString('ru-RU')}`);
+        }
+
+        // Сравниваем списки услуг
+        const oldServices = editTask.description
+          .split('Выбранные услуги:\n')[1]
+          ?.split('\n')
+          .map(line => line.replace('- ', '').split(' (')[0]) || [];
+        
+        const newServices = selectedServices.map(s => s.name);
+        
+        const addedServices = newServices.filter(s => !oldServices.includes(s));
+        const removedServices = oldServices.filter(s => !newServices.includes(s));
+        
+        if (addedServices.length > 0) {
+          changes.push(`- Добавлены услуги: ${addedServices.join(', ')}`);
+        }
+        if (removedServices.length > 0) {
+          changes.push(`- Удалены услуги: ${removedServices.join(', ')}`);
+        }
+
+        // Если есть изменения, публикуем комментарий
+        if (changes.length > 0) {
+          const commentText = `Внесены изменения в задачу:\n${changes.join('\n')}`;
+          updatedTask = await updateTask(editTask.id, taskData);
+          updatedTask = await addTaskComment(editTask.id, {
+            text: commentText,
+            author: {
+              email: currentUser.email || '',
+              company: userData?.companyName || ''
+            }
+          });
+        } else {
+          updatedTask = await updateTask(editTask.id, taskData);
+        }
+      } else {
+        updatedTask = await createTask(taskData);
+      }
 
       // Очищаем форму и возвращаемся к первому шагу
       setSelectedServices([]);
       setStep(1);
-      onSuccess?.();
+      onSuccess?.(updatedTask);
     } catch (err) {
-      console.error('Ошибка при создании задачи:', err);
-      setError('Ошибка при создании задачи. Пожалуйста, попробуйте снова.');
+      console.error('Ошибка при создании/обновлении задачи:', err);
+      setError('Ошибка при создании/обновлении задачи. Пожалуйста, попробуйте снова.');
     }
   };
 
@@ -187,6 +283,7 @@ const CreateTask: React.FC<CreateTaskProps> = ({ onSuccess }) => {
               selectedServices={selectedServices}
               onSubmit={handleSubmit}
               onBack={handleBack}
+              initialValues={initialFormValues}
             />
           )}
         </div>

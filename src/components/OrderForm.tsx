@@ -9,6 +9,7 @@ interface OrderFormProps {
   selectedServices: Service[];
   onSubmit: (data: OrderFormValues) => void;
   onBack: () => void;
+  initialValues?: OrderFormValues;
 }
 
 export interface OrderFormValues {
@@ -25,7 +26,7 @@ const formSchema = z.object({
   deadline: z.string().min(1, "Дедлайн обязателен"),
 });
 
-const OrderForm = ({ selectedServices, onSubmit, onBack }: OrderFormProps) => {
+const OrderForm = ({ selectedServices, onSubmit, onBack, initialValues }: OrderFormProps) => {
   const totalHours = selectedServices.reduce(
     (sum, service) => sum + service.estimatedHours,
     0
@@ -35,7 +36,7 @@ const OrderForm = ({ selectedServices, onSubmit, onBack }: OrderFormProps) => {
 
   const form = useForm<OrderFormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
+    defaultValues: initialValues || {
       taskName: "",
       taskDescription: "",
       deadline: defaultDeadline,
@@ -51,7 +52,7 @@ const OrderForm = ({ selectedServices, onSubmit, onBack }: OrderFormProps) => {
           Название задачи
         </label>
         <input
-            type="text"
+          type="text"
           {...form.register("taskName")}
           className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
         />
@@ -133,7 +134,9 @@ const OrderForm = ({ selectedServices, onSubmit, onBack }: OrderFormProps) => {
         <Button type="button" variant="outline" onClick={onBack}>
           Назад
         </Button>
-        <Button type="submit">Отправить заказ</Button>
+        <Button type="submit">
+          {initialValues ? 'Сохранить изменения' : 'Отправить заказ'}
+        </Button>
       </div>
     </form>
   );

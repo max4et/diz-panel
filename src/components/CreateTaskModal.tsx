@@ -2,20 +2,30 @@ import React from 'react';
 import { X } from 'lucide-react';
 import { Button } from './ui/button';
 import CreateTask from './CreateTask';
+import { Task } from '../services/taskService';
 
 interface CreateTaskModalProps {
   isOpen: boolean;
   onClose: () => void;
+  editTask?: Task;
+  onSuccess?: (task?: Task) => void;
 }
 
-const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ isOpen, onClose }) => {
+const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ 
+  isOpen, 
+  onClose,
+  editTask,
+  onSuccess 
+}) => {
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
       <div className="bg-gray-100 rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-auto">
         <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
-          <h2 className="text-2xl font-bold">Создание новой задачи</h2>
+          <h2 className="text-2xl font-bold">
+            {editTask ? 'Редактирование задачи' : 'Создание новой задачи'}
+          </h2>
           <Button
             variant="outline"
             onClick={onClose}
@@ -26,7 +36,7 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ isOpen, onClose }) =>
         </div>
         
         <div>
-          <CreateTask onSuccess={onClose} />
+          <CreateTask onSuccess={onSuccess} editTask={editTask} />
         </div>
       </div>
     </div>
