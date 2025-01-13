@@ -8,7 +8,7 @@ interface TaskStats {
   total: number;
   pending: number;
   inProgress: number;
-  completed: number;
+  designReview: number;
 }
 
 const UserDetail: React.FC = () => {
@@ -48,12 +48,12 @@ const UserDetail: React.FC = () => {
       total: stats.total + 1,
       pending: stats.pending + (task.status === 'pending' ? 1 : 0),
       inProgress: stats.inProgress + (task.status === 'in-progress' ? 1 : 0),
-      completed: stats.completed + (task.status === 'completed' ? 1 : 0)
+      designReview: stats.designReview + (task.status === 'design-review' ? 1 : 0)
     }), {
       total: 0,
       pending: 0,
       inProgress: 0,
-      completed: 0
+      designReview: 0
     });
   };
 
@@ -133,7 +133,7 @@ const UserDetail: React.FC = () => {
 
       <div className="bg-white p-6 rounded-lg shadow-md">
         <h3 className="text-xl font-bold mb-4">Статистика задач</h3>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-4 gap-4 mb-6">
           <div className="bg-gray-50 p-4 rounded-lg text-center">
             <p className="text-2xl font-bold text-gray-700">{stats.total}</p>
             <p className="text-sm text-gray-500">Всего задач</p>
@@ -146,9 +146,9 @@ const UserDetail: React.FC = () => {
             <p className="text-2xl font-bold text-blue-700">{stats.inProgress}</p>
             <p className="text-sm text-blue-500">В процессе</p>
           </div>
-          <div className="bg-green-50 p-4 rounded-lg text-center">
-            <p className="text-2xl font-bold text-green-700">{stats.completed}</p>
-            <p className="text-sm text-green-500">Завершено</p>
+          <div className="bg-purple-50 p-4 rounded-lg text-center">
+            <p className="text-2xl font-bold text-purple-700">{stats.designReview}</p>
+            <p className="text-sm text-purple-500">На ревью</p>
           </div>
         </div>
       </div>
@@ -173,11 +173,11 @@ const UserDetail: React.FC = () => {
                 <span className={`px-3 py-1 rounded-full text-sm ${
                   task.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
                   task.status === 'in-progress' ? 'bg-blue-100 text-blue-800' :
-                  'bg-green-100 text-green-800'
+                  'bg-purple-100 text-purple-800'
                 }`}>
                   {task.status === 'pending' ? 'В ожидании' :
                    task.status === 'in-progress' ? 'В процессе' :
-                   'Завершено'}
+                   'Дизайн-ревью'}
                 </span>
               </div>
             </div>

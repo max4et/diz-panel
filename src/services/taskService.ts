@@ -16,7 +16,7 @@ import {
   limit
 } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db } from '../firebase';
+import { db, storage } from '../firebase';
 
 export interface TaskAttachment {
   name: string;
@@ -38,7 +38,7 @@ export interface Task {
   id: string;
   title: string;
   description: string;
-  status: 'pending' | 'in-progress' | 'completed';
+  status: 'pending' | 'in-progress' | 'design-review';
   userId: string;
   author?: {
     company: string;
@@ -63,7 +63,7 @@ interface FirestoreTaskComment {
 interface FirestoreTask {
   title: string;
   description: string;
-  status: 'pending' | 'in-progress' | 'completed';
+  status: 'pending' | 'in-progress' | 'design-review';
   userId: string;
   author?: {
     company: string;
@@ -214,10 +214,23 @@ export const getUserTasks = async (userId: string, isAdmin: boolean): Promise<Ta
 
 // Функция для загрузки файла в Storage
 export const uploadFile = async (file: File, taskId: string): Promise<string> => {
-  const storage = getStorage();
-  const fileRef = ref(storage, `tasks/${taskId}/${file.name}`);
-  await uploadBytes(fileRef, file);
-  return getDownloadURL(fileRef);
+  try {
+    // Создаем безопасное имя файла
+    const timestamp = Date.now();
+    const safeFileName = encodeURIComponent(file.name.replace(/[^a-zA-Z0-9.-]/g, '_'));
+    const storageRef = ref(storage, `tasks/${taskId}/${timestamp}_${safeFileName}`);
+    
+    // Загружаем файл
+    const snapshot = await uploadBytes(storageRef, file);
+    
+    // Получаем URL для скачивания
+    const downloadURL = await getDownloadURL(snapshot.ref);
+    
+    return downloadURL;
+  } catch (error) {
+    console.error('Ошибка при загрузке файла:', error);
+    throw new Error('Не удалось загрузить файл. Пожалуйста, попробуйте снова.');
+  }
 };
 
 export const addTaskComment = async (taskId: string, comment: Omit<TaskComment, 'id' | 'createdAt'>) => {
