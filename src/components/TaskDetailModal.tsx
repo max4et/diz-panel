@@ -5,6 +5,7 @@ import { Task, addTaskComment, updateTask } from '../services/taskService';
 import { User } from 'firebase/auth';
 import CreateTaskModal from './CreateTaskModal';
 import CompleteTaskModal from './CompleteTaskModal';
+import RevisionModal from './RevisionModal';
 
 interface TaskDetailModalProps {
   task: Task | null;
@@ -25,6 +26,7 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isCompleteModalOpen, setIsCompleteModalOpen] = useState(false);
+  const [isRevisionModalOpen, setIsRevisionModalOpen] = useState(false);
 
   useEffect(() => {
     setTask(initialTask);
@@ -80,35 +82,100 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     setIsEditModalOpen(false);
   };
 
-  const handleCompleteTask = async (text: string, link: string, files: { name: string; url: string; type: 'file' | 'link' }[]) => {
+  const handleCompleteTask = async () => {
     if (!task) return;
 
-    const updatedTask = await onUpdateStatus?.(task.id, 'design-review');
-    if (updatedTask) {
-      setTask(updatedTask);
-      
-      // Добавляем комментарий о дизайн-ревью
-      const commentText = `Задача отправлена на дизайн-ревью\n\n${text}`;
-      const commentedTask = await addTaskComment(task.id, {
-        text: commentText,
-        author: {
-          email: currentUser.email || '',
-          company: task.author?.company || ''
-        }
+    try {
+      const updatedTask = await onUpdateStatus?.(task.id, 'completed');
+      if (updatedTask) {
+        setTask(updatedTask);
+        
+        // Добавляем комментарий о завершении задачи
+        const commentText = 'Задача завершена';
+        const commentedTask = await addTaskComment(task.id, {
+          text: commentText,
+          author: {
+            email: currentUser.email || '',
+            company: task.author?.company || ''
+          }
+        });
+
+        setTask(commentedTask);
+      }
+    } catch (error) {
+      console.error('Ошибка при завершении задачи:', error);
+      setError('Не удалось завершить задачу. Пожалуйста, попробуйте снова.');
+    }
+  };
+
+  const handleRevisionSubmit = async (text: string) => {
+    if (!task) return;
+
+    try {
+      // Создаем новый дедлайн: текущий дедлайн + 3 дня
+      const newDeadline = new Date(task.deadline);
+      newDeadline.setDate(newDeadline.getDate() + 3);
+
+      // Обновляем статус и дедлайн задачи
+      const updatedTask = await updateTask(task.id, {
+        status: 'in-progress',
+        deadline: newDeadline
       });
 
-      // Добавляем ссылку и файлы к задаче
-      const updatedAttachments = [
-        ...(commentedTask.attachments || []),
-        ...files
-      ];
+      if (updatedTask) {
+        setTask(updatedTask);
+        
+        // Добавляем комментарий о возврате на доработку и изменении дедлайна
+        const commentText = `Задача отправлена на доработку\n\nПричина: ${text}\n\nДедлайн продлен на 3 дня (новый дедлайн: ${formatDate(newDeadline)})`;
+        const commentedTask = await addTaskComment(task.id, {
+          text: commentText,
+          author: {
+            email: currentUser.email || '',
+            company: task.author?.company || ''
+          }
+        });
 
-      const finalTask = await updateTask(task.id, {
-        ...commentedTask,
-        attachments: updatedAttachments
+        setTask(commentedTask);
+        setIsRevisionModalOpen(false);
+      }
+    } catch (error) {
+      console.error('Ошибка при отправке на доработку:', error);
+      setError('Не удалось отправить задачу на доработку. Пожалуйста, попробуйте снова.');
+    }
+  };
+
+  const handleDesignReviewSubmit = async (text: string, link: string, attachments: Task['attachments']) => {
+    if (!task) return;
+
+    try {
+      // Обновляем задачу с новыми вложениями
+      const updatedTask = await updateTask(task.id, {
+        status: 'design-review',
+        attachments: [...(task.attachments || []), ...(attachments || [])]
       });
 
-      setTask(finalTask);
+      if (updatedTask) {
+        setTask(updatedTask);
+        
+        // Добавляем комментарий о переводе в дизайн-ревью
+        const commentText = `Задача отправлена на дизайн-ревью\n\n${text}${
+          link ? `\n\nСсылка на макет: ${link}` : ''
+        }`;
+        
+        const commentedTask = await addTaskComment(task.id, {
+          text: commentText,
+          author: {
+            email: currentUser.email || '',
+            company: task.author?.company || ''
+          }
+        });
+
+        setTask(commentedTask);
+        setIsCompleteModalOpen(false);
+      }
+    } catch (error) {
+      console.error('Ошибка при отправке на дизайн-ревью:', error);
+      setError('Не удалось отправить задачу на дизайн-ревью. Пожалуйста, попробуйте снова.');
     }
   };
 
@@ -168,7 +235,7 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 </div>
               )}
 
-              {task.status === 'design-review' && task.comments && (
+              {task.status === 'design-review' && !isAdmin && (
                 <div className="mt-4 bg-purple-50 p-4 rounded-lg">
                   <h3 className="text-lg font-semibold mb-2 text-purple-800">Дизайн-ревью</h3>
                   {(() => {
@@ -184,42 +251,21 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                       </div>
                     ) : null;
                   })()}
-                  
-                  <div className="space-y-3">
-                    {/* Ссылка на макет */}
-                    {task.attachments?.find(att => att.name === 'Ссылка на макет') && (
-                      <div>
-                        <h4 className="text-sm font-medium text-purple-700 mb-1">Ссылка на макет:</h4>
-                        <a
-                          href={task.attachments.find(att => att.name === 'Ссылка на макет')?.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:text-blue-800 hover:underline break-all"
-                        >
-                          {task.attachments.find(att => att.name === 'Ссылка на макет')?.url}
-                        </a>
-                      </div>
-                    )}
 
-                    {/* Файлы ревью */}
-                    {task.attachments?.filter(att => 
-                      att.name !== 'Ссылка на макет' && 
-                      att.name !== 'Ссылка на результат' &&
-                      att.name !== 'Ссылка на пример'
-                    ).map((attachment, index) => (
-                      <div key={index}>
-                        <h4 className="text-sm font-medium text-purple-700 mb-1">Прикрепленный файл:</h4>
-                        <a
-                          href={attachment.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:text-blue-800 hover:underline break-all flex items-center"
-                        >
-                          <span className="mr-1">📎</span>
-                          {attachment.name}
-                        </a>
-                      </div>
-                    ))}
+                  <div className="mt-4 flex space-x-4">
+                    <Button
+                      onClick={handleCompleteTask}
+                      className="bg-green-500 hover:bg-green-600 text-white"
+                    >
+                      Завершить задачу
+                    </Button>
+                    <Button
+                      onClick={() => setIsRevisionModalOpen(true)}
+                      variant="outline"
+                      className="border-red-500 text-red-500 hover:bg-red-50"
+                    >
+                      Отправить на доработку
+                    </Button>
                   </div>
                 </div>
               )}
@@ -254,7 +300,8 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                           const statusText = {
                             pending: 'В ожидании',
                             'in-progress': 'В процессе',
-                            'design-review': 'Дизайн-ревью'
+                            'design-review': 'Дизайн-ревью',
+                            'completed': 'Завершено'
                           };
                           const commentText = `Изменён статус задачи с "${statusText[task.status]}" на "${statusText[newStatus]}"`;
                           const commentedTask = await addTaskComment(task.id, {
@@ -273,16 +320,19 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                     <option value="pending">В ожидании</option>
                     <option value="in-progress">В процессе</option>
                     <option value="design-review">Дизайн-ревью</option>
+                    <option value="completed">Завершено</option>
                   </select>
                 ) : (
                   <span className={`px-3 py-1 rounded-full text-sm ${
                     task.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
                     task.status === 'in-progress' ? 'bg-blue-100 text-blue-800' :
-                    'bg-purple-100 text-purple-800'
+                    task.status === 'design-review' ? 'bg-purple-100 text-purple-800' :
+                    'bg-green-100 text-green-800'
                   }`}>
                     {task.status === 'pending' ? 'В ожидании' :
                      task.status === 'in-progress' ? 'В процессе' :
-                     'Дизайн-ревью'}
+                     task.status === 'design-review' ? 'Дизайн-ревью' :
+                     'Завершено'}
                   </span>
                 )}
               </div>
@@ -290,7 +340,7 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               {/* Секция комментариев */}
               <div className="border-t pt-4">
                 <h3 className="text-lg font-semibold mb-4">Комментарии</h3>
-                
+
                 {/* Форма добавления комментария */}
                 <form onSubmit={handleSubmitComment} className="space-y-4 mb-6">
                   {error && (
@@ -332,7 +382,13 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                           {formatDate(comment.createdAt)}
                         </span>
                       </div>
-                      <p className="text-gray-700 whitespace-pre-wrap">{comment.text}</p>
+                      <p className={`text-gray-700 whitespace-pre-wrap ${
+                        comment.text.startsWith('Изменён статус') ? 'text-blue-600' :
+                        comment.text.startsWith('Задача завершена') ? 'text-green-600' :
+                        comment.text.startsWith('Задача отправлена на доработку') ? 'text-red-600' :
+                        comment.text.startsWith('Задача отправлена на дизайн-ревью') ? 'text-purple-600' :
+                        ''
+                      }`}>{comment.text}</p>
                     </div>
                   ))}
                   {(!task.comments || task.comments.length === 0) && (
@@ -354,11 +410,18 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         />
       )}
 
-      {isCompleteModalOpen && task && (
+      {isCompleteModalOpen && (
         <CompleteTaskModal
-          taskId={task.id}
           onClose={() => setIsCompleteModalOpen(false)}
-          onComplete={handleCompleteTask}
+          onComplete={handleDesignReviewSubmit}
+          taskId={task.id}
+        />
+      )}
+
+      {isRevisionModalOpen && (
+        <RevisionModal
+          onClose={() => setIsRevisionModalOpen(false)}
+          onSubmit={handleRevisionSubmit}
         />
       )}
     </>

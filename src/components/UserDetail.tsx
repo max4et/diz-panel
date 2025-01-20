@@ -1,78 +1,67 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { getUserTasks, Task } from '../services/taskService';
-import { getCompanySettings, CompanySettings } from '../services/userService';
-import AdminTaskDetailModal from './AdminTaskDetailModal';
-
-interface TaskStats {
-  total: number;
-  pending: number;
-  inProgress: number;
-  designReview: number;
-}
+import { getUser } from '../services/userService';
+import { useAuth } from '../contexts/AuthContext';
+import TaskList from './TaskList';
+import TaskDetailModal from './TaskDetailModal';
 
 const UserDetail: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
+  const { currentUser } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [userData, setUserData] = useState<{ email: string; companyName: string } | null>(null);
 
   useEffect(() => {
-    const loadUserData = async () => {
-      if (!userId) return;
+    const fetchData = async () => {
+      if (!userId || !currentUser) return;
 
       try {
+        setLoading(true);
         setError(null);
-        const [userTasks, settings] = await Promise.all([
-          getUserTasks(userId, false),
-          getCompanySettings(userId)
-        ]);
-        
+
+        // Получаем данные пользователя
+        const user = await getUser(userId);
+        if (user) {
+          setUserData(user);
+        }
+
+        // Получаем задачи пользователя
+        const userTasks = await getUserTasks(userId, currentUser.email === 'efeop1@gmail.com');
         setTasks(userTasks);
-        setCompanySettings(settings);
       } catch (err) {
-        console.error('Error loading user data:', err);
-        setError('Ошибка при загрузке данных пользователя');
+        console.error('Ошибка при загрузке данных:', err);
+        setError('Не удалось загрузить данные. Пожалуйста, попробуйте позже.');
       } finally {
         setLoading(false);
       }
     };
 
-    loadUserData();
-  }, [userId]);
+    fetchData();
+  }, [userId, currentUser]);
 
-  const calculateStats = (tasks: Task[]): TaskStats => {
-    return tasks.reduce((stats, task) => ({
-      total: stats.total + 1,
-      pending: stats.pending + (task.status === 'pending' ? 1 : 0),
-      inProgress: stats.inProgress + (task.status === 'in-progress' ? 1 : 0),
-      designReview: stats.designReview + (task.status === 'design-review' ? 1 : 0)
-    }), {
-      total: 0,
-      pending: 0,
-      inProgress: 0,
-      designReview: 0
-    });
+  const handleUpdateStatus = async (taskId: string, status: Task['status']) => {
+    try {
+      const updatedTask = tasks.map(task => 
+        task.id === taskId ? { ...task, status } : task
+      );
+      setTasks(updatedTask);
+      return updatedTask.find(task => task.id === taskId)!;
+    } catch (err) {
+      console.error('Ошибка при обновлении статуса:', err);
+      throw err;
+    }
   };
 
-  const formatDate = (date: Date) => {
-    return new Intl.DateTimeFormat('ru-RU', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(date);
-  };
-
-  const handleOpenTask = (task: Task) => {
-    setSelectedTask(task);
-  };
-
-  const handleCloseTask = () => {
-    setSelectedTask(null);
+  const stats = {
+    total: tasks.length,
+    pending: tasks.filter(task => task.status === 'pending').length,
+    inProgress: tasks.filter(task => task.status === 'in-progress').length,
+    designReview: tasks.filter(task => task.status === 'design-review').length,
+    completed: tasks.filter(task => task.status === 'completed').length
   };
 
   if (loading) {
@@ -85,55 +74,37 @@ const UserDetail: React.FC = () => {
 
   if (error) {
     return (
-      <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-        {error}
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-xl text-red-600">{error}</div>
       </div>
     );
   }
 
-  const stats = calculateStats(tasks);
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-xl text-red-600">Необходимо авторизоваться</div>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Информация о пользователе</h2>
-        <Link
-          to="/users"
-          className="bg-gray-500 text-white py-2 px-4 rounded hover:bg-gray-600 transition duration-200"
-        >
-          Назад к списку
-        </Link>
-      </div>
-
+    <div className="container mx-auto px-4 py-8 space-y-6">
       <div className="bg-white p-6 rounded-lg shadow-md">
-        <h3 className="text-xl font-bold mb-4">Данные компании</h3>
+        <h2 className="text-2xl font-bold mb-4">Информация о пользователе</h2>
         <div className="space-y-2">
-          <p><span className="font-semibold">Название:</span> {companySettings?.companyName || 'Не указано'}</p>
           <p>
-            <span className="font-semibold">Сайт:</span>{' '}
-            {companySettings?.companyWebsite ? (
-              <a 
-                href={companySettings.companyWebsite}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:underline"
-              >
-                {companySettings.companyWebsite}
-              </a>
-            ) : 'Не указан'}
+            <span className="font-medium">Email:</span> {userData?.email}
           </p>
-          <p><span className="font-semibold">Описание:</span> {companySettings?.companyDescription || 'Не указано'}</p>
-          {companySettings?.updatedAt && (
-            <p className="text-sm text-gray-500">
-              Последнее обновление: {formatDate(companySettings.updatedAt)}
-            </p>
-          )}
+          <p>
+            <span className="font-medium">Компания:</span> {userData?.companyName}
+          </p>
         </div>
       </div>
 
       <div className="bg-white p-6 rounded-lg shadow-md">
         <h3 className="text-xl font-bold mb-4">Статистика задач</h3>
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-5 gap-4 mb-6">
           <div className="bg-gray-50 p-4 rounded-lg text-center">
             <p className="text-2xl font-bold text-gray-700">{stats.total}</p>
             <p className="text-sm text-gray-500">Всего задач</p>
@@ -150,38 +121,22 @@ const UserDetail: React.FC = () => {
             <p className="text-2xl font-bold text-purple-700">{stats.designReview}</p>
             <p className="text-sm text-purple-500">На ревью</p>
           </div>
+          <div className="bg-green-50 p-4 rounded-lg text-center">
+            <p className="text-2xl font-bold text-green-700">{stats.completed}</p>
+            <p className="text-sm text-green-500">Завершено</p>
+          </div>
         </div>
       </div>
 
       <div className="bg-white p-6 rounded-lg shadow-md">
         <h3 className="text-xl font-bold mb-4">Список задач</h3>
         <div className="space-y-4">
-          {tasks.map(task => (
-            <div 
-              key={task.id} 
-              className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 cursor-pointer transition duration-200"
-              onClick={() => handleOpenTask(task)}
-            >
-              <div className="flex justify-between items-start">
-                <div>
-                  <h4 className="font-bold">{task.title}</h4>
-                  <p className="text-sm text-gray-600">{task.description}</p>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Дедлайн: {formatDate(task.deadline)}
-                  </p>
-                </div>
-                <span className={`px-3 py-1 rounded-full text-sm ${
-                  task.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                  task.status === 'in-progress' ? 'bg-blue-100 text-blue-800' :
-                  'bg-purple-100 text-purple-800'
-                }`}>
-                  {task.status === 'pending' ? 'В ожидании' :
-                   task.status === 'in-progress' ? 'В процессе' :
-                   'Дизайн-ревью'}
-                </span>
-              </div>
-            </div>
-          ))}
+          <TaskList
+            tasks={tasks}
+            currentUser={currentUser}
+            onUpdateStatus={handleUpdateStatus}
+            onOpenTask={setSelectedTask}
+          />
           {tasks.length === 0 && (
             <p className="text-gray-500 text-center py-4">У пользователя нет задач</p>
           )}
@@ -189,9 +144,11 @@ const UserDetail: React.FC = () => {
       </div>
 
       {selectedTask && (
-        <AdminTaskDetailModal
+        <TaskDetailModal
           task={selectedTask}
-          onClose={handleCloseTask}
+          onClose={() => setSelectedTask(null)}
+          currentUser={currentUser}
+          onUpdateStatus={handleUpdateStatus}
         />
       )}
     </div>

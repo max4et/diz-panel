@@ -38,7 +38,7 @@ export interface Task {
   id: string;
   title: string;
   description: string;
-  status: 'pending' | 'in-progress' | 'design-review';
+  status: 'pending' | 'in-progress' | 'design-review' | 'completed';
   userId: string;
   author?: {
     company: string;
@@ -47,7 +47,6 @@ export interface Task {
   createdAt: Date;
   deadline: Date;
   attachments?: TaskAttachment[];
-  links?: string[];
   comments?: TaskComment[];
 }
 
@@ -63,16 +62,19 @@ interface FirestoreTaskComment {
 interface FirestoreTask {
   title: string;
   description: string;
-  status: 'pending' | 'in-progress' | 'design-review';
+  status: 'pending' | 'in-progress' | 'design-review' | 'completed';
   userId: string;
   author?: {
-    company: string;
     email: string;
+    company: string;
   };
-  createdAt: Timestamp | null;
+  createdAt: Timestamp;
   deadline: Timestamp;
-  attachments?: TaskAttachment[];
-  links?: string[];
+  attachments: {
+    name: string;
+    url: string;
+    type: 'file' | 'link';
+  }[];
   comments?: FirestoreTaskComment[];
 }
 
@@ -98,7 +100,6 @@ const convertFirestoreTaskToTask = (doc: QueryDocumentSnapshot<DocumentData>): T
     createdAt,
     deadline,
     attachments: data.attachments || [],
-    links: data.links || [],
     comments
   };
 };
@@ -113,7 +114,6 @@ export const createTask = async (task: Omit<Task, 'id' | 'createdAt'>) => {
       userId: task.userId,
       deadline: Timestamp.fromDate(task.deadline),
       attachments: task.attachments || [],
-      links: task.links || [],
       author: task.author
     };
 
@@ -145,6 +145,7 @@ export const updateTask = async (taskId: string, updates: Partial<Task>) => {
     if (updates.status) updateData.status = updates.status;
     if (updates.userId) updateData.userId = updates.userId;
     if (updates.deadline) updateData.deadline = Timestamp.fromDate(updates.deadline);
+    if (updates.attachments) updateData.attachments = updates.attachments;
     
     await updateDoc(taskRef, updateData);
 

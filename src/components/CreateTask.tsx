@@ -9,6 +9,7 @@ import type { OrderFormValues } from './OrderForm';
 import { getDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Task } from '../services/taskService';
+import { useToast } from '../contexts/ToastContext';
 
 // Импортируем все услуги
 import { additionalServices } from '../lib/services/additional';
@@ -27,6 +28,7 @@ interface CreateTaskProps {
 
 const CreateTask: React.FC<CreateTaskProps> = ({ onSuccess, editTask }) => {
   const { currentUser } = useAuth();
+  const { showToast } = useToast();
   const [step, setStep] = useState(1);
   const [selectedServices, setSelectedServices] = useState<Service[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -203,8 +205,16 @@ const CreateTask: React.FC<CreateTaskProps> = ({ onSuccess, editTask }) => {
         } else {
           updatedTask = await updateTask(editTask.id, taskData);
         }
+        showToast({
+          message: 'Задача успешно обновлена',
+          type: 'success'
+        });
       } else {
         updatedTask = await createTask(taskData);
+        showToast({
+          message: 'Задача успешно создана',
+          type: 'success'
+        });
       }
 
       // Очищаем форму и возвращаемся к первому шагу
@@ -214,6 +224,10 @@ const CreateTask: React.FC<CreateTaskProps> = ({ onSuccess, editTask }) => {
     } catch (err) {
       console.error('Ошибка при создании/обновлении задачи:', err);
       setError('Ошибка при создании/обновлении задачи. Пожалуйста, попробуйте снова.');
+      showToast({
+        message: 'Произошла ошибка при создании задачи',
+        type: 'error'
+      });
     }
   };
 

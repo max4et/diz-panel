@@ -203,4 +203,41 @@ export const getAllUsers = async (): Promise<UserListItem[]> => {
     console.error('Error getting users list:', error);
     throw error;
   }
+};
+
+export const getUser = async (userId: string) => {
+  try {
+    const userDoc = await getDoc(doc(db, 'users', userId));
+    if (!userDoc.exists()) {
+      return null;
+    }
+    const userData = userDoc.data();
+    return {
+      email: userData.email,
+      companyName: userData.companyName
+    };
+  } catch (error) {
+    console.error('Error getting user:', error);
+    throw error;
+  }
+};
+
+export const createUserProfile = async (
+  userId: string,
+  email: string,
+  companyName: string,
+  companyWebsite: string
+) => {
+  try {
+    await setDoc(doc(db, 'users', userId), {
+      email,
+      companyName,
+      companyWebsite,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+  } catch (error) {
+    console.error('Error creating user profile:', error);
+    throw error;
+  }
 }; 
